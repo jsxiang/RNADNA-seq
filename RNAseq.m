@@ -1,4 +1,14 @@
 classdef RNAseq < handle
+    % to do
+    % collapse mutants - done, in python
+    % handle replicates - done
+    % graph structure
+    % find lengths
+    % plot cleavage & identify switches - done
+    % volcano plot - done
+    % display information for specified sequences - done
+    % need a way to calculate decay constant instead
+    
     
   properties
     counts;
@@ -6,7 +16,8 @@ classdef RNAseq < handle
     refs;
     ctrls;
     val;
-
+    quantctls;
+    mutantfamily;
 
  end
 
@@ -178,11 +189,15 @@ classdef RNAseq < handle
         % plot controls
 
         for k=1:length(data.ctrls.ids)
+            if data.ctrls.ids(k)>0
             plot(data.counts(data.ctrls.ids(k),ids(i)),data.counts(data.ctrls.ids(k),ids(j)),'+','MarkerSize',10)
+            end
         end
 
         for k=1:length(data.val.ids)
+            if data.val.ids(k)>0
             plot(data.counts(data.val.ids(k),ids(i)),data.counts(data.val.ids(k),ids(j)),'o','MarkerSize',10)
+            end
         end
         
         if nargin>4
@@ -286,9 +301,14 @@ classdef RNAseq < handle
 
         RNA_DNA1=log10(sum(data.counts(:,i),2)/sum(sum(data.counts(:,i),2))./sum(data.counts(:,j),2)*sum(sum(data.counts(:,j),2)));
         RNA_DNA2=log10(sum(data.counts(:,k),2)/sum(sum(data.counts(:,k),2))./sum(data.counts(:,l),2)*sum(sum(data.counts(:,l),2)));
-        if ~plotcontrols
+        if ~plotcontrols & data.ctrls.ids(2)>0
             RNA_DNA1(data.ctrls.ids(2))=3;
             RNA_DNA2(data.ctrls.ids(2))=3;
+        elseif ~plotcontrols
+            data.ctrls.ids(2)=length(RNA_DNA1)+1;
+            RNA_DNA1(data.ctrls.ids(2))=3;
+            RNA_DNA2(data.ctrls.ids(2))=3;
+            
         end
         RNA_DNA_good1=log10(sum(data.counts(goodstat,i),2)/sum(sum(data.counts(:,i),2))./sum(data.counts(goodstat,j),2)*sum(sum(data.counts(:,j),2)))-RNA_DNA1(data.ctrls.ids(2))+normscalefactor;
         RNA_DNA_good2=log10(sum(data.counts(goodstat,k),2)/sum(sum(data.counts(:,k),2))./sum(data.counts(goodstat,l),2)*sum(sum(data.counts(:,l),2)))-RNA_DNA2(data.ctrls.ids(2))+normscalefactor;
@@ -344,7 +364,11 @@ classdef RNAseq < handle
             end
             subrun.adjustedRDratio=[subrun.RDratio(:,1) fitcoeffs(1)+fitcoeffs(2)*subrun.RDratio(:,2)];
             subrun.adjustedRDratio_ctrls=[subrun.ctrls_RDratio(:,1) fitcoeffs(1)+fitcoeffs(2)*subrun.ctrls_RDratio(:,2)];
+            if ~isempty(data.val.ids)
             subrun.adjustedRDratio_val=[subrun.val_RDratio(:,1) fitcoeffs(1)+fitcoeffs(2)*subrun.val_RDratio(:,2)];
+            else
+                subrun.adjustedRDratio_val=[];
+            end
         end
         
       
@@ -357,11 +381,36 @@ classdef RNAseq < handle
         subrun.RNAcount=sum(data.counts(subrun.goodstat,[RNAids1 RNAids2]),2);
 %         subrun.RDraw=sum(data.counts(subrun.goodstat,[RNAids1 RNAids2]),2)/sum(sum(data.counts(:,[RNAids1 RNAids2]),2))./sum(data.counts(subrun.goodstat,[DNAids1 DNAids2]),2)*sum(sum(data.counts(:,[DNAids1 DNAids2]),2));
         subrun.RDraw=RNA_DNA_double(subrun.goodstat);
-        subrun.ctrls_RDraw=RNA_DNA_double(data.ctrls.ids);
-
+        subrun.ctrls=data.ctrls;
+        subrun.val=data.val;
         
-        subrun.ctrlcounts=sum(data.counts(data.ctrls.ids,[DNAids1 DNAids2]),2);
-        subrun.valcounts=sum(data.counts(data.val.ids,[DNAids1 DNAids2]),2);
+        
+        for l=1:length(data.ctrls.ids)
+            try
+                subrun.ctrls_RDraw(l)=RNA_DNA_double(data.ctrls.ids(l));
+
+            catch
+                subrun.ctrls_RDraw(l)=nan;
+            end
+
+            try
+                subrun.ctrlcounts(l)=sum(data.counts(data.ctrls.ids(l),[DNAids1 DNAids2]),2);
+            catch
+                subrun.ctrlcounts(l)=nan;
+
+            end
+            
+            
+        end
+        if ~isempty(data.val.ids)
+        for l=1:length(data.val.ids)
+            try
+            subrun.valcounts(l)=sum(data.counts(data.val.ids(l),[DNAids1 DNAids2]),2);
+            catch
+            subrun.valcounts(l)=nan;
+            end
+        end
+        end
 %         xlabel(xnames{p})
 %         ylabel(ynames{p})
         % xlabel(xnames)
@@ -405,9 +454,10 @@ classdef RNAseq < handle
         for c=1:length(ctrls_RDratio(:,1))
             plot(ctrls_RDratio(c,1),ctrls_RDratio(c,2),'+','MarkerSize',14,'linewidth',2)
         end
-
+        if ~isempty(subrun.val_RDratio)
         for c=1:length(subrun.val_RDratio(:,1))
             plot(val_RDratio(c,1),val_RDratio(c,2),'o','MarkerSize',14,'linewidth',2)
+        end
         end
 
         x=linspace(min(RNA_DNA_good1),max(RNA_DNA_good1));
@@ -441,12 +491,10 @@ classdef RNAseq < handle
     
     function combined=combinesubrun(~,subrun1,subrun2,filterbyaptamer,aptamer,alpha)
         
-
         [c,ia,ib]=intersect(subrun1.seqs,subrun2.seqs);
         
         RD1=subrun1.adjustedRDratio(ia,:);
         RD2=subrun2.adjustedRDratio(ib,:);
-        
         
         ctrl1=subrun1.adjustedRDratio_ctrls;
         ctrl2=subrun2.adjustedRDratio_ctrls;
@@ -459,8 +507,8 @@ classdef RNAseq < handle
         valcomb=[mean(val1,2), mean(val2,2)];
         
         [Y1,I1]=sort(RDcomb(:,1));
-        R1sorted=Y1(end:-5:(end-25));
-        R2sorted=RDcomb(I1(end:-5:(end-25)),2);
+        R1sorted=Y1(end:-5:(end-50));
+        R2sorted=RDcomb(I1(end:-5:(end-50)),2);
         R1sorted=[];
         R2sorted=[];
         x1=[ctrl1(:,2);ctrl2(:,2)];
@@ -491,12 +539,10 @@ classdef RNAseq < handle
         
         hold on
         
-        
-        combined.seqs=subrun1.seqs(hasapt1);
+        combined.seqs=subrun1.seqs(ia(hasapt1));
         combined.RDratio=adjustedRDcomb(hasapt1,:);
         combined.ctrls_RDratio=adjustedctrlcomb;
         combined.val_RDratio=adjustedvalcomb;
-        
         
         combined.minus=subrun1;
         combined.minus.combidx=ia;
@@ -504,8 +550,6 @@ classdef RNAseq < handle
         combined.plus=subrun2;
         combined.plus.combidx=ib;
         
-        
-
         fc1=10.^(combined.RDratio(:,1)-3);
         fc2=10.^(combined.RDratio(:,2)-3);
         n1=subrun1.totalcount(ia(hasapt1));
@@ -519,10 +563,6 @@ classdef RNAseq < handle
         isdiff=(abs(z)>-norminv(alpha/2)) & foldchange>1.5;
         combined.isdiff=isdiff;
         combined.foldchange=foldchange;
-        
-        
-        
-    
 %         plot(combined.RDratio(combined.isdiff,1),combined.RDratio(combined.isdiff,2),'.','color',[0.4 0.4 0.9],'markersize',8)
 
         H=[];
@@ -554,12 +594,24 @@ classdef RNAseq < handle
         fc2=10.^(combined.ctrls_RDratio(:,2)-3);
         n1=subrun1.ctrlcounts;
         n2=subrun2.ctrlcounts;
-        
-        p=(fc1.*n1+fc2.*n2)./(n1+n2);
-        z=(fc1-fc2)./sqrt(p.*(1-p).*(1./n1+1./n2));
-               
-        ctrlsisdiff=abs(z)>-norminv(alpha/2);
-        combined.ctrlsisdiff=ctrlsisdiff;
+%         
+%         p=(fc1.*n1+fc2.*n2)./(n1+n2);
+%         z=(fc1-fc2)./sqrt(p.*(1-p).*(1./n1+1./n2));
+%                
+%         ctrlsisdiff=abs(z)>-norminv(alpha/2);
+%         combined.ctrlsisdiff=ctrlsisdiff;
+
+        combined.totalcount=subrun1.totalcount(ia(hasapt1),:);
+        combined.ctrlcounts=subrun1.ctrlcounts;
+        combined.ctrlseqs=subrun1.ctrls.seqs;
+        combined.valcounts=subrun1.valcounts;
+        combined.valseqs=subrun1.val.seqs;
+
+% xan_all_RSVIII.totalcount=xan_minus_RSVIII.totalcount;
+% xan_all_RSVIII.ctrlcounts=xan_minus_RSVIII.ctrlcounts;
+% xan_all_RSVIII.ctrlseqs=RSVIIItrim.ctrls.seqs;
+% xan_all_RSVIII.valcounts=xan_minus_RSVIII.valcounts;
+% xan_all_RSVIII.valseqs=RSVIIItrim.seqs(RSVIIItrim.val.ids);
         
     end
     
@@ -627,7 +679,240 @@ classdef RNAseq < handle
         out.tapprox=1./sqrt(combined.totalcount);
         
     end
-     
+    function findMutants(data,parentseq,familycutoff,familynames)
+        for k=1:length(parentseq)
+            data.mutantfamily(k).dist=[];
+            data.mutantfamily(k).seqidx=[];
+            data.mutantfamily(k).seqs={};
+            data.mutantfamily(k).counts=[];
+            data.mutantfamily(k).name=familynames{k};
+            data.mutantfamily(k).parentseq=parentseq{k};
+            if isempty(familycutoff)
+                familycutoff=5;
+            end
+            for j=1:length(data.seqs)
+                d=seqpdist({data.seqs{j},parentseq{k}})*length(parentseq{k});
+                if d<=familycutoff
+                    data.mutantfamily(k).seqidx(end+1)=j;
+                    data.mutantfamily(k).seqs{end+1}=data.seqs{j};
+                    data.mutantfamily(k).dist(end+1)=d;
+                    data.mutantfamily(k).counts(end+1)=data.counts(j,k);
+                end
+            end
+        end
+        
+    end
+    function [pairaligned,missense,insertion,deletion]=findMutScan(data,seqs,counts,library)
+        if nargin<2
+            library=1:length(data.mutantfamily);
+        end        
+
+        pairaligned=struct;
+        
+        for k=library
+        p=data.mutantfamily(k).parentseq;
+        % align with parent
+        if nargin<2
+            seqs=data.mutantfamily(k).seqs;
+            counts=data.mutantfamily(k).counts;
+        end
+        insertion=zeros(length(p),4);
+        deletion=zeros(length(p),1);
+        missense=zeros(length(p),4);
+        % s1=data.mutantfamily(k).seqs(sum(data.mutantfamily(k).compareTRPinter.countsminus,2)==max(sum(data.mutantfamily(k).compareTRPinter.countsminus,2)));
+        DNA={'A','C','G','T','-'};
+        pairaligned(k).seqs={};
+        for i=1:length(seqs)
+        % for i=1:1000
+            s1=seqs(i);
+            [s,a]=nwalign(p,s1,'Alphabet','NT');
+
+            alignedseq=a{1}(3,:);
+            pairaligned(k).seqs{end+1}=alignedseq;
+            mismatch=find(a{1}(2,:)~='|');
+
+            mutated2base=alignedseq(mismatch);
+            parentbase=a{1}(1,mismatch);
+
+            ins=find(parentbase=='-');
+            del=find(mutated2base=='-');
+            mis=find(parentbase~='-'&mutated2base~='-');
+
+            if ~isempty(ins)
+                if length(ins)<6
+
+                for j=1:length(DNA)
+                    base=find(mutated2base(ins)==DNA{j});
+                    if ~isempty(base)
+                        insertion(mismatch(ins),j)=insertion(mismatch(ins),j)+sum(counts(i));
+                    end
+                end
+                end
+            end
+
+
+
+            if ~isempty(del)
+                deletion(mismatch(del))=deletion(mismatch(del))+sum(counts(i));
+            end
+
+            if ~isempty(mis)
+                if ~isempty(ins)
+
+                for j=1:length(DNA)
+                    base=find(mutated2base(mis)==DNA{j});
+
+                    if ~isempty(base)
+                            for q=1:length(base)
+                                subtractlen=sum(ins<(base(q)));
+                                missense(mismatch(mis)-subtractlen,j)=missense(mismatch(mis)-subtractlen,j)+sum(counts(i));
+                            end
+
+                    end
+                end
+                else
+                    for j=1:length(DNA)
+                        base=find(mutated2base(mis)==DNA{j});
+
+                        if parentbase(mis)~=p(mismatch(mis))
+                            fprintf('%s\n%s\n',p,a{1}(1,:))
+                        end
+
+                        if mutated2base(mis(base))==p(mismatch(mis(base)))
+                            fprintf('%s\n%s\n%s\n-\n',p,a{1}(1,:),alignedseq)
+                        end
+
+                        if ~isempty(base)
+                            missense(mismatch(mis(base)),j)=missense(mismatch(mis(base)),j)+sum(counts(i));
+
+                            if j==2 & ismember(79,mismatch(mis(base)))
+                            fprintf('%s\n%s\n%s\n-\n',p,a{1}(1,:),alignedseq)
+                            end
+                        end
+                    end
+                end
+            end
+        end
+        
+
+        missense=missense/sum(sum(counts));
+        deletion=deletion/sum(sum(counts));
+        insertion=insertion/sum(sum(counts));
+%         
+        
+        setfig(strcat(data.mutantfamily(k).name,' mut scan'));clf
+        hold on
+        for q=1:length(missense(1,:))
+            s=scatter(1:length(p),missense(:,q),'filled');
+            s.MarkerFaceColor=s.CData;
+        end
+        s=scatter(1:length(p),deletion,'filled');
+        s.MarkerFaceColor=s.CData;
+        s=scatter(1:length(p),sum(insertion,2),'filled');
+        s.MarkerFaceColor=s.CData;
+        set(gca,'YScale','log')
+%         ylim([10^-4.5,10^-2.5])
+        
+        xlim([0,length(p)+1])
+        set(gca,'XTick',[0 1:length(p) length(p)+1])
+        set(gca,'XTickLabel',{'',p(:),''})
+        set(gca,'fontsize',14)
+        set(gca,'linewidth',1.5)
+        ylabel('mutation frequency')
+        title(data.mutantfamily(k).name)
+        legend({DNA{:},'+'})
+        grid on
+        end
+    end
+    
+    
+    function [pairaligned,missense,insertion,deletion]= findMutScanNoIndel(data,seqs,counts,library)
+        if nargin<2
+            
+            library=1:length(data.mutantfamily);
+        end
+        pairaligned=struct;
+        
+        for k=library
+            if nargin<2
+                seqs=data.mutantfamily(k).seqs;
+                counts=data.mutantfamily(k).counts;
+            end
+        p=data.mutantfamily(k).parentseq;
+        % align with parent
+        insertion=zeros(length(p),4);
+        deletion=zeros(length(p),1);
+        missense=zeros(length(p),4);
+        % s1=data.mutantfamily(k).seqs(sum(data.mutantfamily(k).compareTRPinter.countsminus,2)==max(sum(data.mutantfamily(k).compareTRPinter.countsminus,2)));
+        DNA={'A','C','G','T'};
+        pairaligned(k).misseqs={};
+        pairaligned(k).delseqs={};
+        pairaligned(k).inseqs={};
+        pairaligned(k).mispos={};
+        for i=1:length(seqs)
+        % for i=1:1000
+            s1=seqs(i);
+            [s,a]=nwalign(p,s1,'Alphabet','NT');
+
+            alignedseq=a{1}(3,:);
+            
+            if length(s1{1})==length(p) & isempty(regexp(alignedseq,'-'));
+                mispos=find(a{1}(2,:)~='|');
+                pairaligned(k).misseqs{end+1}=alignedseq;
+                pairaligned(k).mispos{end+1}=mispos;
+            elseif length(s1{1})<length(p)
+                pairaligned(k).delseqs{end+1}=alignedseq;
+            elseif length(s1{1})>length(p);
+                pairaligned(k).inseqs{end+1}=alignedseq;
+            end
+            
+        end
+        mismatsum=zeros(length(p),4);
+        for j=1:length(DNA)
+            mismat=zeros(length(pairaligned(k).misseqs),length(p));
+            for i=1:length(pairaligned(k).misseqs)
+                mut2base=pairaligned(k).misseqs{i}(pairaligned(k).mispos{i})==DNA{j};
+                mismat(i,pairaligned(k).mispos{i}(mut2base))=sum(counts(i,:));
+                mismat(i,pairaligned(k).mispos{i}(mut2base))=1;
+            
+            end
+            mismatsum(:,j)=(sum(mismat)');
+        end
+            
+        missense=mismatsum/sum(sum(counts));
+        end
+        
+% 
+%         missense=missense/sum(sum(counts));
+%         deletion=deletion/sum(sum(counts));
+%         insertion=insertion/sum(sum(counts));
+% %         
+%         
+        setfig(strcat(data.mutantfamily(k).name,' missense scan'));clf
+        hold on
+        for q=1:length(missense(1,:))
+            s=scatter(1:length(p),missense(:,q),'filled');
+            s.MarkerFaceColor=s.CData;
+        end
+%         s=scatter(1:length(p),deletion,'filled');
+%         s.MarkerFaceColor=s.CData;
+%         s=scatter(1:length(p),sum(insertion,2),'filled');
+%         s.MarkerFaceColor=s.CData;
+        set(gca,'YScale','log')
+%         ylim([10^-4.5,10^-2.5])
+        
+        xlim([0,length(p)+1])
+        set(gca,'XTick',[0 1:length(p) length(p)+1])
+        set(gca,'XTickLabel',{'',p(:),''})
+        set(gca,'fontsize',14)
+        set(gca,'linewidth',1.5)
+        ylabel('mutation frequency')
+        title(data.mutantfamily(k).name)
+        legend({DNA{:},'+'})
+        grid on
+    end
+    
+    
     
     
    end
